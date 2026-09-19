@@ -10,6 +10,28 @@ function cabecalhosAsaas(): Record<string, string> | null {
   return { "Content-Type": "application/json", access_token: chave };
 }
 
+// Checagem somente-leitura (GET, não cria nada) para confirmar que ASAAS_API_KEY e
+// ASAAS_BASE_URL estão configuradas e válidas, sem gerar nenhuma cobrança real.
+export async function testarConexaoAsaas(): Promise<
+  { sucesso: true; baseUrl: string; ambiente: string } | { sucesso: false; erro: string }
+> {
+  const headers = cabecalhosAsaas();
+  if (!headers) {
+    return { sucesso: false, erro: "Chave da API do Asaas não configurada (ASAAS_API_KEY)." };
+  }
+
+  const resp = await fetch(`${BASE_URL}/customers?limit=1`, { headers });
+  if (resp.status === 401) {
+    return { sucesso: false, erro: "Chave da API do Asaas inválida (401 do Asaas) para " + BASE_URL };
+  }
+  if (!resp.ok) {
+    return { sucesso: false, erro: `Asaas respondeu ${resp.status} em ${BASE_URL}` };
+  }
+
+  const ambiente = BASE_URL.includes("sandbox") ? "sandbox" : "produção";
+  return { sucesso: true, baseUrl: BASE_URL, ambiente };
+}
+
 interface DadosCobranca {
   clienteId: string; // id do cliente na crm_naildesigner (usado como externalReference)
   nomeCliente: string;

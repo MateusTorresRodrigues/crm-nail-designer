@@ -1,6 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { gerarSinalAgendamento } from "../_shared/asaas.ts";
+import { gerarSinalAgendamento, testarConexaoAsaas } from "../_shared/asaas.ts";
 
 // Nomes exatos dos eventos do Asaas (confirmado na documentação oficial).
 // PAYMENT_FAILED não existe como evento do Asaas — o evento real para cartão
@@ -716,6 +716,10 @@ Deno.serve(async (req: Request) => {
     }
     if (req.method === "GET" && caminho === "/profissionais") {
       return await consultarProfissionais(admin);
+    }
+    if (req.method === "GET" && caminho === "/diagnostico/asaas") {
+      const resultado = await testarConexaoAsaas();
+      return jsonResponse(resultado, resultado.sucesso ? 200 : 502);
     }
     if (req.method === "GET" && caminho === "/agenda/disponibilidade") {
       return await consultarDisponibilidade(url, admin);
