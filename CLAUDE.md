@@ -1,0 +1,174 @@
+# Sistema de Gestão — Clínica de Nail Designer
+
+## Visão geral do projeto
+
+Sistema de gestão para clínica de nail designer (manicure e pedicure). Organiza agenda por profissional, cadastro de clientes com histórico, comandas de atendimento, catálogo de serviços e produtos, cobrança de sinal via Asaas e integração futura com agente de IA no WhatsApp via Evolution API/n8n.
+
+## Stack técnica
+
+- Frontend: React + Vite + TypeScript
+- Estilização: Tailwind CSS + Shadcn/UI
+- Backend/Banco: Supabase (Postgres + Auth)
+- Roteamento: React Router
+- Projeto Supabase: crm_naildesigner
+
+## Banco de dados
+
+- `crm_naildesigner`: clientes e leads, com campos de integração ao WhatsApp
+- `profissionais`: cadastro, horário de almoço e disponibilidade
+- `servicos`: catálogo de procedimentos com duração e valor
+- `produtos`: catálogo de produtos com preço e estoque
+- `agendamentos`: horários marcados por cliente, profissional e serviço
+- `comandas`: abertura e fechamento de valor por atendimento
+- `itens_comanda`: serviços e produtos lançados em cada comanda
+- `pagamentos`: cobranças de sinal via Asaas (`forma_pagamento` pix/cartão, `link_pagamento`, `id_externo` do Asaas, `status` pendente/pago/falhou/estornado)
+- `configuracoes`: preferências da clínica
+- `usuarios`: usuários com acesso ao sistema
+- `api_tokens`: tokens de acesso do agente de IA
+- `logs_sistema`: histórico de ações no sistema
+
+**Realtime**: as tabelas `configuracoes` e `crm_naildesigner` estão na publicação `supabase_realtime` (necessário para os `postgres_changes` usados por `ConfiguracaoContext` e pela página Leads funcionarem entre sessões/abas — nenhuma tabela vinha habilitada por padrão). Ao depender de Realtime em uma tabela nova, lembrar de rodar `alter publication supabase_realtime add table public.<tabela>;`.
+
+## Estrutura de páginas e rotas
+
+**Layout base** (`src/components/layout/Layout.tsx`): sidebar fixa à esquerda (`Sidebar.tsx`) com logo/nome da clínica e menu de navegação, header superior (`Header.tsx`) com título da página atual e avatar/e-mail do usuário logado com dropdown (Sair). Área de conteúdo com fundo neutro claro e cards em bege/creme.
+
+**Autenticação**: `AuthContext` (`src/contexts/AuthContext.tsx`) gerencia sessão via Supabase Auth. `ProtectedRoute` (`src/components/ProtectedRoute.tsx`) redireciona para `/login` quando não há sessão ativa, preservando a rota de destino original.
+
+**Contexto global de configurações**: `ConfiguracaoContext` (`src/contexts/ConfiguracaoContext.tsx`) carrega o registro de `configuracoes` na inicialização e se inscreve em tempo real (Supabase Realtime) para refletir alterações feitas na página de Configurações em toda a aplicação (nome da clínica e logo usados no login, sidebar, etc.).
+
+**Confirmação de exclusão global**: `ConfirmDialogContext` (`src/contexts/ConfirmDialogContext.tsx`) expõe `confirmarExclusao()`, usado por qualquer página antes de excluir um registro.
+
+**Registro de logs**: `src/lib/logs.ts` expõe `registrarLog()`, chamado após criações/edições/exclusões/movimentações relevantes para popular `logs_sistema`. É best-effort (não bloqueia a ação principal caso o registro do usuário logado ainda não exista em `usuarios`).
+
+**Página Clientes** (`src/pages/Clientes.tsx`): lista contatos de `crm_naildesigner` com `tipo = 'cliente'`. Busca por nome/WhatsApp, filtros por profissional preferida e período de cadastro. Colunas: nome, WhatsApp, profissional preferida, cadastro e último atendimento (calculado a partir do agendamento concluído ou comanda fechada mais recente). Botão "+ Novo cliente" abre `NovoClienteModal` (`src/components/clientes/NovoClienteModal.tsx`) para cadastro manual direto como cliente (WhatsApp obrigatório, nome e profissional preferida opcionais) — não passa pelo funil de leads, diferente do cadastro rápido de cliente feito durante um agendamento na Agenda (que cria como lead). Clique na linha abre `ClienteDrawer` (`src/components/clientes/ClienteDrawer.tsx`) com dados editáveis, histórico completo de atendimentos (agendamentos concluídos + comandas fechadas) e exclusão com confirmação.
+
+**Página Leads** (`src/pages/Leads.tsx`): Kanban dos contatos com `tipo = 'lead'`, organizados por `status` nas colunas Novo, Conversando, Agendado, Follow-up 1, Follow-up 2 e Cancelou (`src/components/leads/kanban-config.ts`). Drag and drop implementado com `@dnd-kit`, atualizando o `status` no banco ao soltar o card. Inscrição em tempo real via Supabase Realtime remove o card automaticamente quando o trigger da Etapa 1 converte o lead em cliente (`tipo = 'cliente'`, ex.: ao comparecer a um atendimento). Cada card exibe um badge de classificação (🔥 Quente, 🟡 Morno, 🔵 Frio) calculado pelo banco; filtro por classificação no topo da página. Clique no card abre `LeadModal` com todos os campos editáveis (incluindo horário de preferência e classificação manual) e exclusão; botão "+ Novo lead" abre `NovoLeadModal` para cadastro manual (WhatsApp obrigatório). `LeadModal` envia ao banco somente os campos alterados, para não disparar sem necessidade o trigger de reclassificação automática (`src/components/leads/classificacao-config.ts` centraliza rótulos/emojis).
+
+**Página Agenda** (`src/pages/Agenda.tsx`): calendário via `react-big-calendar` (com `date-fns` + locale pt-BR e o addon `withDragAndDrop`), com alternância entre visão mensal, semanal e diária, em visual premium próprio (não o padrão da lib): barra de ferramentas customizada (`BarraFerramentasPremium`, com navegação por ícones e o mesmo pill-switcher Mês/Semana/Dia usado em Configurações/Comandas), eventos renderizados por `EventoCard` (cartão branco com barra colorida à esquerda por profissional, adaptando quantas linhas mostra — só o nome em compromissos curtos, nome + serviço + horário nos mais longos — em vez do bloco chapado padrão) e cabeçalho de dia no mês (`CabecalhoDiaMes`) com o dia atual destacado num círculo preenchido. As visões semana/dia abrem já roladas para o horário de abertura da clínica (menor `inicio` em `configuracoes.horario_funcionamento`, com 8h de reserva se nada estiver configurado — `calcularHorarioInicial`, usado via a prop `scrollToTime`), em vez de abrir em meia-noite. Ajustes finos de grade/cores em `src/index.css` (bloco "Ajustes visuais do react-big-calendar"); como o CSS da lib é importado dentro do próprio `Agenda.tsx` e acaba injetado depois no bundle do Vite, qualquer override de propriedade que a lib também define precisa de `!important` para vencer a cascata — já resolvido nesse bloco, mas vale lembrar ao mexer nele de novo. Cada profissional tem uma cor determinística (`src/lib/cores-profissionais.ts`) aplicada aos eventos, com legenda no topo; filtro para ver todas ou uma profissional específica. Clicar em um horário livre abre `NovoAgendamentoModal` (busca/cria cliente via `ClienteBuscaCampo`, seleciona profissional/serviço com cálculo automático de término, valida disponibilidade — grade semanal e horário de almoço — no cliente via `src/lib/disponibilidade.ts` antes de enviar). Clicar em um evento abre `AgendamentoDetalhesModal`, com remarcação por edição de data/hora, cancelamento e conclusão (atualizando `status`, o que aciona os triggers da Etapa 1 que sincronizam `crm_naildesigner`). Arrastar um evento remarca diretamente (eventos cancelados/concluídos não são arrastáveis). Conflitos de horário retornados pelo trigger do banco são exibidos como mensagem amigável no modal.
+
+**Página Profissionais** (`src/pages/Profissionais.tsx`): lista com nome, horário de almoço e status (ativa/inativa, alternável clicando no badge). `ProfissionalModal` cria (somente nome) e edita (nome, horário de almoço, disponibilidade semanal via `DisponibilidadeGrid`). Exclusão com confirmação; se houver agendamentos ou comandas vinculados, a exclusão é bloqueada com aviso recomendando desativar.
+
+**Página Serviços** (`src/pages/Servicos.tsx`): lista com nome, duração, valor, dias para retorno (mostrando "Padrão (N dias)" a partir de `configuracoes.dias_inatividade` quando vazio) e status ativo/inativo. `ServicoModal` cuida de criação e edição; exclusão com confirmação.
+
+**Página Comandas** (`src/pages/Comandas.tsx`): lista `comandas` com abas Abertas/Fechadas (cliente, profissional, status, valor total, data de abertura). `NovaComandaModal` cria uma comanda buscando/cadastrando um cliente + selecionando a profissional, ou vinculando diretamente a um agendamento do dia (preenchendo cliente, profissional e `id_agendamento` automaticamente). `ComandaDrawer` (`src/components/comandas/ComandaDrawer.tsx`) gerencia os itens: lançamento de serviço ou produto com quantidade e valor unitário auto-preenchido (editável), validação de estoque disponível antes de adicionar um produto (decrementando o estoque ao adicionar e devolvendo ao remover, com confirmação), valor total sempre recarregado do banco após cada alteração (recalculado pelo trigger da Etapa 1). "Fechar comanda" exige ao menos um item, pede confirmação e torna a comanda somente leitura (`status = 'fechada'`).
+
+**Página Produtos** (`src/pages/Produtos.tsx`): lista com nome, preço, estoque e status; badge "Estoque baixo" quando abaixo de `ESTOQUE_BAIXO_LIMITE` (`src/lib/constantes.ts`, valor fixo 5). `ProdutoModal` cuida de criação (nome, preço, estoque inicial) e edição (inclui ajuste manual de estoque para reposição/correção); exclusão com confirmação, bloqueada com aviso quando há itens de comanda vinculados.
+
+**Página Retorno** (`src/pages/Retorno.tsx`): página calculada dinamicamente, sem tabela própria. Para cada cliente, cruza o último atendimento concluído (agendamento com `status = concluido` ou comanda `fechada`, priorizando o serviço vinculado via `id_agendamento` e, na ausência dele, o primeiro serviço lançado em `itens_comanda`) com o prazo aplicável (`dias_retorno` do serviço, com fallback para `configuracoes.dias_inatividade`). Lista ordenada do mais atrasado ao mais próximo, com badge Atrasado (prazo já ultrapassado) ou Próximo (a até 3 dias do prazo); clientes fora dessas faixas não aparecem. Filtro por profissional; botão "Abrir WhatsApp" que abre `https://wa.me/[whatsapp]` em nova aba.
+
+**Página Configurações** (`src/pages/Configuracoes.tsx`): dados gerais (nome, upload de logo para o bucket `logos`, fuso horário), horário de funcionamento (grade semanal reaproveitando `DisponibilidadeGrid`, salvo em `configuracoes.horario_funcionamento`) e prazo de retorno padrão (`dias_inatividade`, com nota sobre serviços poderem sobrescrevê-lo). Todas as alterações — inclusive o upload de logo, que salva imediatamente — refletem em tempo real no `ConfiguracaoContext` (header/sidebar/login) via Supabase Realtime, sem recarregar a página.
+
+**Página Logs** (`src/pages/Logs.tsx`): lista paginada (20 por página) de `logs_sistema`, mais recentes primeiro, com filtros por usuário, tabela e período. Clique em um registro expande `dados_anteriores`/`dados_novos` formatados como pares campo/valor legíveis (`src/components/logs/DadosLog.tsx`), não como JSON cru. Página somente leitura, sem edição ou exclusão.
+
+**Aba API em Configurações** (`src/components/configuracoes/AbaApi.tsx`): gerencia os registros de `api_tokens` (criar via `NovoTokenModal`, ativar/desativar, excluir) e documenta os 8 endpoints da API pública (`src/lib/api-docs.ts`), com um seletor de token que preenche automaticamente o `Authorization: Bearer` nos comandos cURL prontos para colar no n8n (`BlocoCurl.tsx`, com botão de copiar).
+
+**Aba Geral em Configurações** ganhou o card "Pagamentos" com o percentual do sinal (`configuracoes.percentual_sinal`, padrão 50%), usado no cálculo do valor cobrado ao criar um agendamento.
+
+**Página Pagamentos** (`src/pages/Pagamentos.tsx`): lista `pagamentos` (mais recentes primeiro), cruzando com `agendamentos` e `crm_naildesigner` para exibir cliente, valor, status (badge colorido: verde/pago, amarelo/pendente, vermelho/falhou, cinza/estornado), data do agendamento vinculado e data de criação. Filtro por status com estado vazio por filtro. Clique na linha abre um modal com forma de pagamento, id externo do Asaas e botão para abrir o link de pagamento (quando ainda pendente).
+
+**Geração do sinal na Agenda**: `NovoAgendamentoModal` pede a forma de pagamento (Pix/Cartão) e o CPF/CNPJ do cliente (exigido pelo Asaas para cadastrar o cliente); após criar o agendamento, chama a Edge Function `pagamentos` e exibe o link de pagamento gerado (ou, se a cobrança não puder ser gerada — ex.: chave do Asaas não configurada, CPF ausente —, mostra o motivo sem impedir a criação do agendamento).
+
+**Página Dashboard** (`src/pages/Dashboard.tsx`): filtro de período no topo (Hoje/Últimos 7 dias/Últimos 30 dias/Personalizado, padrão "Últimos 7 dias" — `src/lib/periodo.ts`) aplicado a todos os indicadores dependentes de período; "Agendamentos hoje" é a única exceção, sempre referente ao dia atual. Cards: agendamentos de hoje com badge de status, contatos recebidos no período e clientes novos no período (conversão aproximada por `updated_at` quando posterior ao `created_at`, senão `created_at`). Gráficos com Recharts: movimento do dia (duas mini séries de barras — agendamentos e valor de comandas fechadas por hora — mantidas como gráficos separados de eixo único em vez de um gráfico de eixo duplo), linha de novos contatos por dia no período, barras de contatos históricos por dia da semana, barras de atendimentos concluídos por profissional no período e barras dos serviços mais vendidos no período (com valor total no tooltip). Todos os gráficos usam a paleta categórica validada em `src/lib/paleta-graficos.ts` (distinta da paleta pastel da Agenda, que não passa nos testes de contraste/CVD para leitura de dados), com tooltips customizados (`TooltipGrafico.tsx`) e estados de carregamento/vazio por cartão (`CartaoGrafico.tsx`).
+
+Rotas (todas protegidas exceto `/login`):
+
+| Rota | Página | Status |
+| --- | --- | --- |
+| `/login` | Login | Implementada |
+| `/` | Dashboard | Implementada |
+| `/agenda` | Agenda | Implementada |
+| `/clientes` | Clientes | Implementada |
+| `/leads` | Leads (Kanban) | Implementada |
+| `/profissionais` | Profissionais | Implementada |
+| `/servicos` | Serviços | Implementada |
+| `/produtos` | Produtos | Implementada |
+| `/comandas` | Comandas | Implementada |
+| `/retorno` | Retorno | Implementada |
+| `/pagamentos` | Pagamentos | Implementada |
+| `/configuracoes` | Configurações | Implementada |
+| `/logs` | Logs | Implementada |
+
+## Identidade visual
+
+- Cor primária (terracota/rosé): `#B96B62`
+- Cor de apoio (bege/creme): `#F1E9DF`
+- Cor neutra escura (carvão): `#2B2A28`
+- Cor de destaque suave (verde acinzentado): `#7C8B6F`
+- Tipografia de títulos: Playfair Display (serifada)
+- Tipografia de corpo: Inter (sans-serif)
+- Tokens de cor centralizados em `src/index.css` (variáveis HSL) e consumidos via `tailwind.config.ts`
+- Componentes de UI reutilizáveis (padrão Shadcn/UI) em `src/components/ui/`
+
+## Convenções do projeto
+
+- Todo o conteúdo do sistema em português do Brasil
+- Nomenclatura de tabelas e colunas em português, com underline
+- Toda exclusão exibe modal de confirmação
+- Todas as ações relevantes registradas em `logs_sistema`
+- Timezone padrão: America/Sao_Paulo
+
+## Histórico de etapas construídas
+
+- **Etapa 1 — Banco de dados:** criado o schema completo com as tabelas `crm_naildesigner`, `profissionais`, `servicos`, `produtos`, `agendamentos`, `comandas`, `itens_comanda`, `pagamentos`, `configuracoes`, `usuarios`, `api_tokens`, `logs_sistema`, triggers, políticas de RLS e seed inicial. Adicionadas depois as colunas `horario_preferencia` e `classificacao` (`quente`/`morno`/`frio`, padrão `frio`) em `crm_naildesigner`, com o trigger `trg_classificar_lead` (nº 8) recalculando a classificação sempre que `servico_interesse`, `profissional_preferida` ou `horario_preferencia` mudam (3 campos preenchidos → quente, 1 ou 2 → morno, nenhum → frio); o trigger não dispara quando apenas `classificacao` é editada diretamente, permitindo ajuste manual.
+- **Etapa 2 — Estrutura, navegação e login:** projeto React + Vite + TypeScript criado com Tailwind CSS e Shadcn/UI, aplicando a identidade visual (terracota/bege/carvão/verde acinzentado, Playfair Display + Inter). Implementada a tela de login integrada ao Supabase Auth, layout base com sidebar e header, proteção de todas as rotas via `ProtectedRoute`, `ConfiguracaoContext` com atualização em tempo real e `ConfirmDialogContext` para confirmação global de exclusões. Páginas de cada módulo criadas como placeholders, prontas para receber a implementação das próximas etapas.
+- **Etapa 3 — Clientes e Leads:** implementadas as páginas Clientes (busca, filtros, tabela, drawer de edição com histórico de atendimentos e exclusão) e Leads em formato Kanban (colunas por status, drag and drop com `@dnd-kit`, modal de detalhes editável, criação manual de lead e remoção automática do card quando o lead vira cliente). Criado `registrarLog()` para popular `logs_sistema` nas ações relevantes. Adicionados depois, no Kanban de Leads: badge de classificação em cada card, filtro por classificação e edição de serviço de interesse/profissional preferida/horário de preferência/classificação no modal de detalhes.
+- **Etapa 4 — Agenda, Profissionais e Serviços:** implementada a Agenda com `react-big-calendar` (visões mês/semana/dia, cor por profissional com legenda, filtro por profissional, criação de agendamento com busca/cadastro rápido de cliente e cálculo automático de término, validação de disponibilidade e horário de almoço no cliente antes de salvar, exibição amigável de conflitos retornados pelo trigger do banco, remarcação por arraste ou edição, cancelamento e conclusão). Implementada a página Profissionais (CRUD, toggle ativa/inativa, grade de disponibilidade semanal, exclusão bloqueada quando há histórico vinculado). Implementada a página Serviços (CRUD com duração, valor e dias de retorno, com fallback para o padrão de `configuracoes`).
+- **Etapa 5 — Comandas e Produtos:** implementada a página Comandas (abas Abertas/Fechadas, criação vinculando a um agendamento do dia ou buscando/cadastrando cliente manualmente, lançamento e remoção de itens de serviço/produto com controle de estoque, valor total sempre recarregado do trigger do banco, fechamento com confirmação e trava contra novas alterações). Implementada a página Produtos (CRUD com preço e estoque, ajuste manual de estoque na edição, badge de estoque baixo abaixo de 5 unidades).
+- **Etapa 6 — Retorno, Configurações e Logs:** adicionada a coluna `configuracoes.horario_funcionamento` (jsonb). Implementada a página Retorno (cálculo dinâmico de clientes atrasados/próximos do prazo de retorno, sem tabela própria, com filtro por profissional e atalho para WhatsApp). Implementada a página Configurações (dados gerais, upload de logo, horário de funcionamento, prazo de retorno padrão) com reflexo em tempo real no `ConfiguracaoContext`. Implementada a página Logs (lista paginada e somente leitura de `logs_sistema`, com filtros e expansão legível de dados anteriores/novos). Corrigido, nesta etapa, um problema de infraestrutura presente desde a Etapa 2: nenhuma tabela estava na publicação `supabase_realtime`, então as atualizações em tempo real de `ConfiguracaoContext` e da página Leads nunca chegavam a outras abas/sessões (cada uma só via o resultado da sua própria ação local); corrigido adicionando `configuracoes` e `crm_naildesigner` à publicação.
+- **Etapa 7 — Dashboard:** implementada a página Dashboard com filtro de período (Hoje/7/30 dias/Personalizado), cards de indicadores (agendamentos de hoje com breakdown por status, contatos recebidos e clientes novos no período) e cinco gráficos (Recharts): movimento do dia por horário, novos contatos por dia, contatos históricos por dia da semana, atendimentos por profissional e serviços mais vendidos — todos com paleta categórica validada para acessibilidade (`src/lib/paleta-graficos.ts`), tooltips customizados e estados de carregamento/vazio.
+- **Etapa 8 — API pública:** criada a Supabase Edge Function `api` (`supabase/functions/api/index.ts`), com autenticação própria por token (`api_tokens`) e os 8 endpoints usados pelo agente de IA no WhatsApp: criar/atualizar lead, atualizar status do lead, consultar serviços, consultar profissionais, consultar disponibilidade de horários (respeitando horário de funcionamento, almoço, disponibilidade da profissional e agendamentos existentes), criar/remarcar/cancelar agendamento — todos os triggers da Etapa 1 (classificação, conflito de horário, sincronização de status) continuam valendo, com o erro de conflito traduzido para mensagem amigável. Toda chamada é registrada em `logs_sistema`. Criada a aba API em Configurações com gestão de tokens e documentação de cada endpoint com cURL pronto para o n8n, preenchendo o token automaticamente.
+- **Etapa 9 — Pagamentos:** integrado o Asaas para cobrança de sinal única por agendamento. Adicionadas as colunas `pagamentos.forma_pagamento`/`pagamentos.link_pagamento` e `configuracoes.percentual_sinal` (padrão 50%). Criado `supabase/functions/_shared/asaas.ts` com a lógica de cadastro do cliente e criação da cobrança no Asaas (Pix ou cartão, valor calculado como percentual do serviço), reaproveitada por dois pontos de entrada: o endpoint `POST /api/agendamentos` (Etapa 8, agora também gera o sinal e retorna `link_pagamento`) e a nova Edge Function `pagamentos` (autenticada pelo JWT do Supabase, usada pela Agenda ao criar um agendamento manualmente). Em ambos os casos, falha ao gerar a cobrança (ex.: chave do Asaas ausente, CPF/CNPJ não informado) não impede a criação do agendamento — apenas é reportada ao agente/usuário. Adicionado o webhook `POST /api/webhooks/asaas` (dentro da mesma função `api`, com autenticação própria por header `asaas-access-token` comparado a `ASAAS_WEBHOOK_TOKEN`, sem exigir o Bearer do `api_tokens`), idempotente pelo `id_externo` (não reprocessa um evento já refletido no status), tratando `PAYMENT_CONFIRMED`/`PAYMENT_RECEIVED` → `pago`, `PAYMENT_OVERDUE`/`PAYMENT_FAILED` → `falhou` e `PAYMENT_REFUNDED` → `estornado`; o trigger `trg_sync_pagamento_agendamento` (já existente desde a Etapa 1) confirma o agendamento automaticamente quando o pagamento vira `pago`. Implementada a página Pagamentos (lista, filtro por status, badges coloridos, modal de detalhes com link de pagamento) e o card "Pagamentos" em Configurações para o percentual do sinal. `NovoAgendamentoModal` da Agenda ganhou os campos de forma de pagamento e CPF/CNPJ e exibe o link gerado após salvar. **Observação:** a chave `ASAAS_API_KEY` e o token `ASAAS_WEBHOOK_TOKEN` ainda não foram configurados como secrets da Edge Function neste ambiente — sem eles, a geração de cobrança retorna erro tratado (agendamento continua sendo criado) e o webhook responde 401; configure-os nas secrets do projeto Supabase para ativar a integração real.
+- **Etapa 10 — Auditoria de segurança (19/09/2026):** auditoria completa do banco (RLS, políticas, triggers), da API pública, do frontend e da integração de pagamentos, sem nenhuma alteração em código ou dados. Resultado: nenhuma tabela está publicamente acessível e todos os endpoints exigem autenticação válida antes de qualquer lógica de negócio, mas foi encontrado 1 risco crítico (`logs_sistema` permite `UPDATE`/`DELETE` para qualquer usuário autenticado, quebrando a inviolabilidade do log de auditoria) e riscos altos relacionados à ausência de segregação de papéis (RLS concede CRUD total em todas as tabelas — incluindo leitura de tokens da API em texto puro — a qualquer conta autenticada) e à integração com o Asaas (secrets ainda não configuradas e sem mecanismo de reconciliação caso um webhook seja perdido). Relatório completo entregue na conversa da etapa, com todos os riscos classificados por gravidade e recomendações de correção (nenhuma foi implementada nesta etapa).
+- **Correção pós-auditoria (19/09/2026):** removidas as políticas `authenticated_update_logs_sistema` e `authenticated_delete_logs_sistema` — `logs_sistema` agora aceita apenas `INSERT`/`SELECT` para o papel `authenticated`, tornando o log de auditoria imutável pelo app (nem o dono consegue editar/apagar uma linha pela API/UI). Corrige o risco crítico da Etapa 10. Testado ao vivo com um usuário autenticado real: `UPDATE`/`DELETE` retornam sucesso HTTP (0 linhas afetadas pela RLS), e a linha permanece intacta no banco.
+- **Tentativa de correção — RBAC (19/09/2026, revertida):** chegou a ser aplicada uma segregação de papéis (`usuarios.papel` admin/atendente, função `is_admin()`, políticas de RLS restringindo escrita por papel) para corrigir o risco Alto da Etapa 10, testada ao vivo com dois usuários reais. A pedido, foi revertida na mesma etapa antes de seguir em frente: políticas de RLS das 12 tabelas voltaram exatamente ao estado original (CRUD aberto a qualquer `authenticated`), e a coluna `usuarios.papel`/função `is_admin()` foram removidas. Risco Alto da Etapa 10 (ausência de RBAC) segue em aberto.
+- **Redesign visual da Agenda (19/09/2026):** calendário passou de blocos chapados/toolbar padrão da `react-big-calendar` para um visual próprio (barra de ferramentas, cartões de evento e cabeçalho do mês customizados — detalhes em "Estrutura de páginas e rotas" acima). Durante o ajuste, foi descoberto e corrigido um problema real: os overrides de CSS da grade não estavam vencendo o CSS padrão da lib por ordem de importação no bundle do Vite (ex.: `.rbc-today` continuava azul, o rótulo de horário duplicado não sumia), resolvido com `!important` nas propriedades conflitantes; e os cartões de evento com 3 linhas quebravam/sobrepunham texto em compromissos curtos (ex.: 45 min só recebem ~30px de altura na grade), resolvido mostrando menos informação quanto mais curto o compromisso. Testado ao vivo nas três visões (mês/semana/dia) com dados temporários (removidos depois).
+- **Revisão do redesign da Agenda (19/09/2026):** identificado que as visões semana/dia sempre abriam mostrando meia-noite, obrigando a rolar ~7 telas para ver qualquer compromisso real (a clínica abre às 9h). Corrigido com `scrollToTime` calculado a partir do horário de funcionamento já cadastrado (`calcularHorarioInicial`), confirmado ao vivo nas duas visões — a Agenda agora abre direto no horário útil. Nenhum outro problema visual foi encontrado na revisão (dupla borda do cartão externo e o comportamento do arraste-e-solte foram checados e estão corretos).
+- **Cadastro manual de cliente (19/09/2026):** adicionado o botão "+ Novo cliente" na página Clientes, abrindo `NovoClienteModal` para criar um contato diretamente com `tipo = 'cliente'` (WhatsApp obrigatório, nome e profissional preferida opcionais), sem precisar passar por um lead que "compareceu". Testado ao vivo: criação, listagem imediata com os dados corretos (incluindo profissional preferida) e abertura do `ClienteDrawer` a partir da linha criada, tudo funcionando; dado de teste removido depois.
+- **Etapa 11 — Deploy seguro para o GitHub (19/09/2026):** antes do commit, conferido que nenhum segredo real está versionado — `Service Role Key` só é lida via `Deno.env.get` dentro das Edge Functions (nunca hardcoded), chaves do Asaas nunca configuradas/presentes no código, nenhum token do GitHub/Supabase em qualquer arquivo do repositório, e `CLAUDE.md` livre de credenciais em texto puro. Completado o `.gitignore` (`.env.*.local` e `build` explícitos) e trocados os valores reais do `.env.example` por placeholders (a `VITE_SUPABASE_PUBLISHABLE_KEY`/URL do projeto, embora públicas por design, não precisam servir de exemplo copiável). Repositório público `crm-nail-designer` criado e enviado para https://github.com/MateusTorresRodrigues/crm-nail-designer (branch `main`).
+
+## Próximos passos
+
+O projeto está com todas as etapas planejadas concluídas e publicado no GitHub. Ficam como melhorias futuras (não bloqueiam o uso do sistema) os itens de correção recomendados pela auditoria de segurança (Etapa 10) ainda pendentes:
+
+- Definir papéis diferenciados (ex.: admin vs. atendente) e restringir as políticas de RLS por papel, em vez de liberar CRUD total a qualquer usuário autenticado em todas as tabelas (com atenção especial a `api_tokens`, `usuarios` e `configuracoes`) — uma primeira versão chegou a ser implementada e testada em 19/09/2026, mas foi revertida a pedido antes do deploy; retomar quando o escopo de permissões por papel estiver definido
+- Configurar as secrets `ASAAS_API_KEY` e `ASAAS_WEBHOOK_TOKEN` na Edge Function e avaliar um mecanismo de reconciliação periódica com a API do Asaas, para o caso de um webhook não ser entregue
+- Mover a baixa de estoque de produtos para um trigger no banco (hoje só acontece via `ComandaDrawer.tsx` no frontend, contornável por um insert direto em `itens_comanda`)
+- Revisar os endpoints da API pública que repassam mensagens de erro brutas do Postgres na resposta, substituindo por mensagens genéricas antes de expor ao agente de IA
+- Registrar em `logs_sistema` as tentativas de autenticação rejeitadas na API pública (token ausente/inválido), hoje totalmente silenciosas
+- Habilitar a proteção contra senhas vazadas (HaveIBeenPwned) no Supabase Auth
+- Remover as políticas de storage duplicadas do bucket `logos`
+
+## Integrações
+
+**API pública (Supabase Edge Function `api`)** — usada exclusivamente pelo agente de IA no WhatsApp (Evolution API/n8n). Código-fonte em `supabase/functions/api` (implantada com `verify_jwt: false`, pois implementa sua própria autenticação por token em vez do JWT do Supabase). Roteamento interno por método + caminho, uma única função cobrindo os 8 endpoints abaixo.
+
+- **Autenticação**: cabeçalho `Authorization: Bearer SEU_TOKEN_AQUI`, validado contra `api_tokens.token` com `ativo = true`. Token ausente, inexistente ou inativo → `401` com `{ "sucesso": false, "mensagem": "Token inválido ou inativo." }`. Tokens são criados e gerenciados na aba API de Configurações.
+- **Acesso a dados**: a função usa a Service Role (bypassa RLS), já que a própria validação do token é a camada de autorização.
+- **Logs**: toda chamada (sucesso ou erro de negócio) grava em `logs_sistema` com `id_usuario = null` e ação prefixada `api_*` (ex.: `api_criar_lead`, `api_criar_agendamento`).
+- **Fuso horário**: a API trata datas/horas sem fuso explícito (ex.: `2026-09-20T14:00:00`) como America/Sao_Paulo (UTC-3 fixo).
+
+Endpoints:
+
+| Método | Caminho | Propósito |
+| --- | --- | --- |
+| POST | `/leads` | Cria ou atualiza um lead/cliente por WhatsApp; `servico_interesse`/`profissional_preferida` aceitam nome ou UUID; sempre atualiza `ultima_mensagem`; retorna a `classificacao` recalculada pelo trigger da Etapa 1 |
+| PATCH | `/leads/status` | Move o lead no Kanban (valida o status contra os valores aceitos); mudar para `compareceu` converte o registro em cliente via trigger |
+| GET | `/servicos` | Lista serviços ativos (nome, duração, valor) |
+| GET | `/profissionais` | Lista profissionais ativas |
+| GET | `/agenda/disponibilidade` | Calcula horários livres num dia para uma ou todas as profissionais, cruzando `horario_funcionamento`, disponibilidade/almoço da profissional e agendamentos existentes |
+| POST | `/agendamentos` | Busca ou cria o cliente pelo WhatsApp, calcula o término pela duração do serviço e cria o agendamento; conflito de horário (trigger da Etapa 1) vira mensagem amigável em vez de erro cru |
+| PATCH | `/agendamentos/{id}` | Remarca um agendamento, recalculando o término a partir do serviço já vinculado |
+| PATCH | `/agendamentos/{id}/cancelar` | Cancela o agendamento; o trigger sincroniza o lead/cliente para `cancelou` |
+
+`POST /agendamentos` agora também gera o sinal via Asaas (ver abaixo) e retorna `link_pagamento` na resposta.
+
+**Pagamentos (Asaas)** — provedor de pagamento do dono da clínica (conta própria no Asaas). Modelo de cobrança: única (não recorrente), por agendamento, com valor calculado como um percentual configurável (`configuracoes.percentual_sinal`, padrão 50%) do valor do serviço. Lógica de integração centralizada em `supabase/functions/_shared/asaas.ts` (busca/cria o cliente no Asaas via `externalReference` = id do contato em `crm_naildesigner`, exige `cpfCnpj`; cria a cobrança Pix ou cartão), usada por dois pontos de entrada:
+
+- **`POST /api/agendamentos`** (Etapa 8): gera o sinal automaticamente após criar o agendamento, se `forma_pagamento` (`pix`/`cartao`, padrão `pix`) e `cpf_cnpj` permitirem.
+- **Edge Function `pagamentos`** (`supabase/functions/pagamentos/index.ts`, `verify_jwt: true` — autenticação é o JWT do usuário logado no sistema, diferente da função `api`): usada pela Agenda ao criar um agendamento manualmente, recebendo `id_agendamento`, `forma_pagamento` e `cpf_cnpj`.
+
+Em ambos os casos, se a cobrança não puder ser gerada (chave ausente, CPF não informado, erro do Asaas), o agendamento **não é desfeito** — o erro é apenas reportado (mensagem ao agente de IA, ou exibido na Agenda).
+
+- **Webhook**: `POST /api/webhooks/asaas`, roteado dentro da própria função `api`, mas **sem** o Bearer do `api_tokens` — valida o header `asaas-access-token` contra o secret `ASAAS_WEBHOOK_TOKEN`. Idempotente: localiza o pagamento por `id_externo` e só atualiza o `status` se ainda não refletir o evento recebido (evita reprocessar o mesmo evento). Mapeamento: `PAYMENT_CONFIRMED`/`PAYMENT_RECEIVED` → `pago`, `PAYMENT_OVERDUE`/`PAYMENT_FAILED` → `falhou`, `PAYMENT_REFUNDED` → `estornado`. Quando o status vira `pago`, o trigger `trg_sync_pagamento_agendamento` (Etapa 1) confirma o agendamento automaticamente. Todo evento processado é registrado em `logs_sistema`.
+- **Secrets da Edge Function** (nunca expostas no frontend): `ASAAS_API_KEY` (chave da conta Asaas), `ASAAS_BASE_URL` (opcional; padrão sandbox `https://sandbox.asaas.com/api/v3`) e `ASAAS_WEBHOOK_TOKEN` (token arbitrário definido também no painel de webhooks do Asaas). **Ainda não configuradas neste projeto** — configure-as em Supabase → Edge Functions → Secrets para ativar cobranças reais; sem elas, a geração de cobrança falha de forma tratada e o webhook responde 401.
