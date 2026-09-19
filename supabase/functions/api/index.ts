@@ -2,11 +2,14 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { gerarSinalAgendamento } from "../_shared/asaas.ts";
 
+// Nomes exatos dos eventos do Asaas (confirmado na documentação oficial).
+// PAYMENT_FAILED não existe como evento do Asaas — o evento real para cartão
+// recusado na captura é PAYMENT_CREDIT_CARD_CAPTURE_REFUSED.
 const STATUS_PAGAMENTO_POR_EVENTO: Record<string, "pago" | "falhou" | "estornado"> = {
   PAYMENT_CONFIRMED: "pago",
   PAYMENT_RECEIVED: "pago",
   PAYMENT_OVERDUE: "falhou",
-  PAYMENT_FAILED: "falhou",
+  PAYMENT_CREDIT_CARD_CAPTURE_REFUSED: "falhou",
   PAYMENT_REFUNDED: "estornado",
 };
 

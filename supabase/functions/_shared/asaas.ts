@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const BASE_URL = Deno.env.get("ASAAS_BASE_URL") ?? "https://sandbox.asaas.com/api/v3";
+// Domínio real da API (confirmado na documentação oficial) — não confundir com
+// sandbox.asaas.com, que é o painel/dashboard de sandbox, não a API.
+const BASE_URL = Deno.env.get("ASAAS_BASE_URL") ?? "https://api-sandbox.asaas.com/v3";
 
 function cabecalhosAsaas(): Record<string, string> | null {
   const chave = Deno.env.get("ASAAS_API_KEY");
