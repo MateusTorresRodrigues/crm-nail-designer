@@ -83,18 +83,22 @@ export const ENDPOINTS: EndpointDoc[] = [
     caminho: '/agendamentos',
     titulo: 'Criar agendamento',
     descricao:
-      'Busca ou cria o cliente pelo WhatsApp (nome_cliente é obrigatório se ele ainda não existir), calcula o término a partir da duração do serviço e cria o agendamento. Se o horário já estiver ocupado, retorna erro sem criar o registro.',
+      'Busca ou cria o cliente pelo WhatsApp (nome_cliente é obrigatório se ele ainda não existir), calcula o término a partir da duração do serviço e cria o agendamento. Se o horário já estiver ocupado, retorna erro sem criar o registro. Também gera o sinal no Asaas (Pix ou cartão, conforme forma_pagamento) e retorna o link de pagamento — o Asaas exige cpf_cnpj do cliente para gerar a cobrança; sem ele, o agendamento é criado normalmente mas sem link (a mensagem explica o motivo). Envie o campo mensagem direto ao cliente: já vem pronto em pt-BR e inclui o link quando disponível.',
     corpoExemplo: {
       whatsapp: '5511987654321',
       nome_cliente: 'Maria Silva',
       id_profissional: 'uuid-da-profissional',
       id_servico: 'uuid-do-servico',
       data_hora_inicio: '2026-09-20T14:00:00',
+      forma_pagamento: 'pix',
+      cpf_cnpj: '12345678900',
     },
     respostaExemplo: {
       sucesso: true,
       agendamento_id: 'uuid',
-      mensagem: 'Agendamento confirmado para 20/09 às 14h com Camila Souza.',
+      link_pagamento: 'https://www.asaas.com/i/xxxxxxxxxxxx',
+      mensagem:
+        'Agendamento confirmado para 20/09 às 14h com Camila Souza. Para confirmar, envie o sinal pelo link: https://www.asaas.com/i/xxxxxxxxxxxx',
     },
   },
   {
