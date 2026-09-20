@@ -312,7 +312,11 @@ async function consultarProdutos(admin: SupabaseClient) {
 async function consultarDisponibilidade(url: URL, admin: SupabaseClient) {
   const idServico = url.searchParams.get("id_servico");
   const dataParam = url.searchParams.get("data");
-  const idProfissionalParam = url.searchParams.get("id_profissional");
+  const idProfissionalRaw = url.searchParams.get("id_profissional");
+  // Aceita "todas"/vazio/ausente como "sem filtro" — o agente de IA às vezes preenche um
+  // valor sentinela em vez de omitir o parâmetro opcional.
+  const idProfissionalParam =
+    idProfissionalRaw && !/^todas?$/i.test(idProfissionalRaw.trim()) ? idProfissionalRaw : null;
 
   if (!idServico || !dataParam) {
     return erroResposta("Informe id_servico e data.");
