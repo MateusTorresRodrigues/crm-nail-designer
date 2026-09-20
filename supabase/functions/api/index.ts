@@ -293,6 +293,20 @@ async function consultarProfissionais(admin: SupabaseClient) {
   return jsonResponse({ sucesso: true, profissionais: data ?? [] });
 }
 
+async function consultarProdutos(admin: SupabaseClient) {
+  const { data, error } = await admin
+    .from("produtos")
+    .select("id, nome, preco")
+    .eq("ativo", true)
+    .order("nome");
+
+  if (error) return erroResposta("Não foi possível consultar os produtos: " + error.message, 500);
+
+  await registrarLog(admin, { acao: "api_consultar_produtos", tabela: "produtos" });
+
+  return jsonResponse({ sucesso: true, produtos: data ?? [] });
+}
+
 async function consultarDisponibilidade(url: URL, admin: SupabaseClient) {
   const idServico = url.searchParams.get("id_servico");
   const dataParam = url.searchParams.get("data");
@@ -814,6 +828,10 @@ Deno.serve(async (req: Request) => {
 
   const autenticacao = await autenticar(req, admin);
   if (!autenticacao) {
+    await registrarLog(admin, {
+      acao: "api_falha_autenticacao",
+      dadosNovos: { caminho, metodo: req.method },
+    });
     return erroResposta("Token inválido ou inativo.", 401);
   }
 
@@ -829,6 +847,9 @@ Deno.serve(async (req: Request) => {
     }
     if (req.method === "GET" && caminho === "/profissionais") {
       return await consultarProfissionais(admin);
+    }
+    if (req.method === "GET" && caminho === "/produtos") {
+      return await consultarProdutos(admin);
     }
     if (req.method === "GET" && caminho === "/diagnostico/asaas") {
       const resultado = await testarConexaoAsaas();

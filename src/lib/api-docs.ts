@@ -59,6 +59,17 @@ export const ENDPOINTS: EndpointDoc[] = [
     respostaExemplo: { sucesso: true, profissionais: [{ id: 'uuid', nome: 'Camila Souza' }] },
   },
   {
+    id: 'produtos',
+    metodo: 'GET',
+    caminho: '/produtos',
+    titulo: 'Consultar produtos',
+    descricao: 'Retorna todos os produtos ativos, com preço.',
+    respostaExemplo: {
+      sucesso: true,
+      produtos: [{ id: 'uuid', nome: 'Esmalte branco', preco: 15.0 }],
+    },
+  },
+  {
     id: 'disponibilidade',
     metodo: 'GET',
     caminho: '/agenda/disponibilidade',
