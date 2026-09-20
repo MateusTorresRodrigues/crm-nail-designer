@@ -544,6 +544,53 @@ async function criarAgendamento(req: Request, admin: SupabaseClient) {
   });
 }
 
+async function consultarAgendamentosCliente(url: URL, admin: SupabaseClient) {
+  const whatsapp = url.searchParams.get("whatsapp");
+  if (!whatsapp || !whatsapp.trim()) {
+    return erroResposta("Informe o parâmetro whatsapp.");
+  }
+
+  const { data: cliente } = await admin
+    .from("crm_naildesigner")
+    .select("id")
+    .eq("whatsapp", whatsapp.trim())
+    .maybeSingle();
+
+  if (!cliente) {
+    return jsonResponse({ sucesso: true, agendamentos: [] });
+  }
+
+  const { data, error } = await admin
+    .from("agendamentos")
+    .select("id, data_hora_inicio, status, profissionais(nome), servicos(nome)")
+    .eq("id_cliente", cliente.id)
+    .neq("status", "cancelado")
+    .order("data_hora_inicio", { ascending: true });
+
+  if (error) return erroResposta("Não foi possível consultar os agendamentos: " + error.message, 500);
+
+  const agendamentos = (data ?? []).map((linha) => {
+    const registro = linha as unknown as {
+      id: string;
+      data_hora_inicio: string;
+      status: string;
+      profissionais: { nome: string } | null;
+      servicos: { nome: string } | null;
+    };
+    return {
+      id: registro.id,
+      data_hora_inicio: registro.data_hora_inicio,
+      status: registro.status,
+      profissional: registro.profissionais?.nome ?? null,
+      servico: registro.servicos?.nome ?? null,
+    };
+  });
+
+  await registrarLog(admin, { acao: "api_consultar_agendamentos_cliente", tabela: "agendamentos" });
+
+  return jsonResponse({ sucesso: true, agendamentos });
+}
+
 async function remarcarAgendamento(req: Request, admin: SupabaseClient, id: string) {
   const corpo = await req.json().catch(() => null);
   if (!corpo || typeof corpo.data_hora_inicio !== "string" || !corpo.data_hora_inicio) {
@@ -610,6 +657,68 @@ async function cancelarAgendamento(admin: SupabaseClient, id: string) {
   return jsonResponse({ sucesso: true, mensagem: "Agendamento cancelado com sucesso." });
 }
 
+// Avisa o workflow do n8n (via webhook próprio, guardado em N8N_WEBHOOK_URL) quando um
+// pagamento é confirmado, para o agente de WhatsApp notificar o cliente automaticamente.
+// Best-effort: nunca deve impedir a confirmação do pagamento em si.
+async function notificarN8nPagamentoConfirmado(
+  admin: SupabaseClient,
+  idAgendamento: string,
+  valor: number,
+) {
+  const webhookUrl = Deno.env.get("N8N_WEBHOOK_URL");
+  if (!webhookUrl) return;
+
+  try {
+    const { data: agendamento } = await admin
+      .from("agendamentos")
+      .select(
+        "data_hora_inicio, crm_naildesigner!agendamentos_id_cliente_fkey(whatsapp, nome), profissionais(nome), servicos(nome)",
+      )
+      .eq("id", idAgendamento)
+      .maybeSingle();
+    if (!agendamento) return;
+
+    const cliente = (agendamento as unknown as { crm_naildesigner: { whatsapp: string; nome: string | null } | null })
+      .crm_naildesigner;
+    const profissional = (agendamento as unknown as { profissionais: { nome: string } | null }).profissionais;
+    const servico = (agendamento as unknown as { servicos: { nome: string } | null }).servicos;
+    if (!cliente) return;
+
+    const inicio = new Date(agendamento.data_hora_inicio as unknown as string);
+    const mensagem = `Recebemos seu pagamento! ${formatarMensagemAgendamento(inicio, profissional?.nome ?? "a profissional")}`;
+
+    const resp = await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        whatsapp: cliente.whatsapp,
+        nome_cliente: cliente.nome,
+        profissional: profissional?.nome ?? null,
+        servico: servico?.nome ?? null,
+        valor,
+        data_hora_inicio: agendamento.data_hora_inicio,
+        mensagem,
+      }),
+    });
+
+    await registrarLog(admin, {
+      acao: "api_notificar_n8n_pagamento_confirmado",
+      tabela: "pagamentos",
+      idRegistro: idAgendamento,
+      dadosNovos: { whatsapp: cliente.whatsapp, http_status_n8n: resp.status },
+    });
+  } catch (erro) {
+    // best-effort: nunca deve derrubar o processamento do webhook do Asaas, mas registra
+    // o motivo para não ficar totalmente silencioso em caso de falha.
+    await registrarLog(admin, {
+      acao: "api_falha_notificar_n8n_pagamento_confirmado",
+      tabela: "pagamentos",
+      idRegistro: idAgendamento,
+      dadosNovos: { erro: erro instanceof Error ? erro.message : String(erro) },
+    });
+  }
+}
+
 async function processarWebhookAsaas(req: Request, admin: SupabaseClient) {
   const tokenEsperado = Deno.env.get("ASAAS_WEBHOOK_TOKEN");
   const tokenRecebido = req.headers.get("asaas-access-token");
@@ -633,7 +742,7 @@ async function processarWebhookAsaas(req: Request, admin: SupabaseClient) {
 
   const { data: pagamento } = await admin
     .from("pagamentos")
-    .select("id, status")
+    .select("id, status, id_agendamento, valor")
     .eq("id_externo", idExterno)
     .maybeSingle();
 
@@ -668,6 +777,10 @@ async function processarWebhookAsaas(req: Request, admin: SupabaseClient) {
     dadosAnteriores: { status: pagamento.status },
     dadosNovos: { status: novoStatus },
   });
+
+  if (novoStatus === "pago" && pagamento.id_agendamento) {
+    await notificarN8nPagamentoConfirmado(admin, pagamento.id_agendamento, Number(pagamento.valor));
+  }
 
   return jsonResponse({ sucesso: true, mensagem: "Status atualizado com sucesso." });
 }
@@ -726,6 +839,9 @@ Deno.serve(async (req: Request) => {
     }
     if (req.method === "POST" && caminho === "/agendamentos") {
       return await criarAgendamento(req, admin);
+    }
+    if (req.method === "GET" && caminho === "/agendamentos") {
+      return await consultarAgendamentosCliente(url, admin);
     }
 
     const remarcarMatch = caminho.match(/^\/agendamentos\/([^/]+)$/);

@@ -102,6 +102,27 @@ export const ENDPOINTS: EndpointDoc[] = [
     },
   },
   {
+    id: 'consultar-agendamentos-cliente',
+    metodo: 'GET',
+    caminho: '/agendamentos',
+    titulo: 'Consultar agendamentos do cliente',
+    descricao:
+      'Retorna os agendamentos não cancelados de um cliente pelo WhatsApp, com profissional e serviço. Use para localizar o agendamento_id antes de remarcar ou cancelar.',
+    parametrosQuery: [{ nome: 'whatsapp', obrigatorio: true, descricao: 'WhatsApp do cliente' }],
+    respostaExemplo: {
+      sucesso: true,
+      agendamentos: [
+        {
+          id: 'uuid',
+          data_hora_inicio: '2026-09-20T14:00:00+00:00',
+          status: 'agendado',
+          profissional: 'Camila Souza',
+          servico: 'Alongamento em Gel',
+        },
+      ],
+    },
+  },
+  {
     id: 'remarcar-agendamento',
     metodo: 'PATCH',
     caminho: '/agendamentos/{id}',
