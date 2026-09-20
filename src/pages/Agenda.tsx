@@ -16,6 +16,7 @@ import type { Agendamento, Disponibilidade } from '@/types/database'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import NovoAgendamentoModal from '@/components/agenda/NovoAgendamentoModal'
 import AgendamentoDetalhesModal from '@/components/agenda/AgendamentoDetalhesModal'
@@ -171,7 +172,7 @@ export default function Agenda() {
     const { data } = await supabase
       .from('agendamentos')
       .select(
-        '*, crm_naildesigner!agendamentos_id_cliente_fkey(nome, whatsapp), profissionais(nome), servicos(nome)',
+        '*, crm_naildesigner!agendamentos_id_cliente_fkey(nome, whatsapp), profissionais(nome), servicos(nome), pagamentos(status)',
       )
       .order('data_hora_inicio')
 
@@ -181,8 +182,13 @@ export default function Agenda() {
         .crm_naildesigner
       const profissional = (linha as { profissionais: { nome: string } | null }).profissionais
       const servicoRelacionado = (linha as { servicos: { nome: string } | null }).servicos
+      const pagamentos = (linha as { pagamentos: { status: string }[] | null }).pagamentos ?? []
 
       const nomeCliente = cliente?.nome || cliente?.whatsapp || 'Cliente'
+      // Sinal ainda não pago: agendamento fica visível (a vaga já está reservada), mas
+      // marcado como pendente até o pagamento confirmar (ou até não haver sinal a pagar).
+      const pagamentoPendente =
+        agendamento.status === 'agendado' && pagamentos.some((p) => p.status === 'pendente')
 
       return {
         id: agendamento.id,
@@ -194,6 +200,7 @@ export default function Agenda() {
         profissionalId: agendamento.id_profissional,
         servicoNome: servicoRelacionado?.nome ?? '—',
         agendamento,
+        pagamentoPendente,
       }
     })
 
@@ -281,6 +288,7 @@ export default function Agenda() {
           <span className={cn('truncate text-xs font-medium text-foreground', cancelado && 'line-through')}>
             {event.clienteNome}
           </span>
+          {event.pagamentoPendente && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-500" />}
         </div>
       )
     }
@@ -307,6 +315,11 @@ export default function Agenda() {
           <span className="truncate text-[10px] leading-tight text-muted-foreground">
             {format(event.start, 'HH:mm')}–{format(event.end, 'HH:mm')}
           </span>
+        )}
+        {event.pagamentoPendente && (
+          <Badge className="w-fit bg-amber-500/15 px-1.5 py-0 text-[9px] font-medium leading-tight text-amber-700">
+            Aguardando pagamento
+          </Badge>
         )}
       </div>
     )

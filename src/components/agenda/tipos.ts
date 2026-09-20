@@ -10,4 +10,5 @@ export interface EventoAgenda {
   profissionalId: string
   servicoNome: string
   agendamento: Agendamento
+  pagamentoPendente: boolean
 }

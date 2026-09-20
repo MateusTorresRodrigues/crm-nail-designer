@@ -156,7 +156,12 @@ export default function AgendamentoDetalhesModal({
               <p className="font-medium text-foreground">{evento.servicoNome}</p>
               <p className="text-muted-foreground">{evento.profissionalNome}</p>
             </div>
-            {rotuloStatus && <Badge variant={rotuloStatus.variante}>{rotuloStatus.texto}</Badge>}
+            <div className="flex flex-col items-end gap-1">
+              {rotuloStatus && <Badge variant={rotuloStatus.variante}>{rotuloStatus.texto}</Badge>}
+              {evento.pagamentoPendente && (
+                <Badge className="bg-amber-500/15 text-amber-700">Aguardando pagamento do sinal</Badge>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
