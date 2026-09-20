@@ -72,6 +72,8 @@ function minutosDeHorario(horario: string): number {
   return h * 60 + m;
 }
 
+// Retorna só o trecho "dd/mm às HHhMM com Fulana" (sem verbo/pontuação), para cada
+// chamador compor a frase certa — "reservei" antes do pagamento, "confirmado" só depois.
 function formatarMensagemAgendamento(inicio: Date, profissionalNome: string): string {
   const formatador = new Intl.DateTimeFormat("pt-BR", {
     timeZone: "America/Sao_Paulo",
@@ -83,7 +85,7 @@ function formatarMensagemAgendamento(inicio: Date, profissionalNome: string): st
   });
   const partes = Object.fromEntries(formatador.formatToParts(inicio).map((p) => [p.type, p.value]));
   const hora = partes.minute === "00" ? `${partes.hour}h` : `${partes.hour}h${partes.minute}`;
-  return `Agendamento confirmado para ${partes.day}/${partes.month} às ${hora} com ${profissionalNome}.`;
+  return `${partes.day}/${partes.month} às ${hora} com ${profissionalNome}`;
 }
 
 // --- Autenticação por token da tabela api_tokens ---
@@ -434,7 +436,11 @@ async function consultarDisponibilidade(url: URL, admin: SupabaseClient) {
 
   resultado.sort((a, b) => a.horario.localeCompare(b.horario));
 
-  await registrarLog(admin, { acao: "api_consultar_disponibilidade", tabela: "agendamentos" });
+  await registrarLog(admin, {
+    acao: "api_consultar_disponibilidade",
+    tabela: "agendamentos",
+    dadosNovos: { id_servico: idServico, data: dataParam, id_profissional: idProfissionalParam, total_encontrado: resultado.length },
+  });
 
   return jsonResponse({ sucesso: true, horarios_disponiveis: resultado });
 }
@@ -543,9 +549,9 @@ async function criarAgendamento(req: Request, admin: SupabaseClient) {
     dadosNovos: sinal.sucesso ? { valor: sinal.valor, link_pagamento: sinal.linkPagamento } : { erro: sinal.erro },
   });
 
-  let mensagem = formatarMensagemAgendamento(inicio, profissional.nome);
+  let mensagem = `Reservei um horário para ${formatarMensagemAgendamento(inicio, profissional.nome)}.`;
   if (sinal.sucesso && sinal.linkPagamento) {
-    mensagem += ` Para confirmar, envie o sinal pelo link: ${sinal.linkPagamento}`;
+    mensagem += ` Esse horário só fica garantido depois do pagamento do sinal — envie pelo link: ${sinal.linkPagamento}`;
   } else if (!sinal.sucesso) {
     mensagem += ` (não foi possível gerar o link do sinal: ${sinal.erro})`;
   }
@@ -699,7 +705,7 @@ async function notificarN8nPagamentoConfirmado(
     if (!cliente) return;
 
     const inicio = new Date(agendamento.data_hora_inicio as unknown as string);
-    const mensagem = `Recebemos seu pagamento! ${formatarMensagemAgendamento(inicio, profissional?.nome ?? "a profissional")}`;
+    const mensagem = `Recebemos seu pagamento! Seu agendamento para ${formatarMensagemAgendamento(inicio, profissional?.nome ?? "a profissional")} está confirmado. Te esperamos!`;
 
     const resp = await fetch(webhookUrl, {
       method: "POST",

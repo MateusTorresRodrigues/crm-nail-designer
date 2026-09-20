@@ -109,7 +109,7 @@ export const ENDPOINTS: EndpointDoc[] = [
       agendamento_id: 'uuid',
       link_pagamento: 'https://www.asaas.com/i/xxxxxxxxxxxx',
       mensagem:
-        'Agendamento confirmado para 20/09 às 14h com Camila Souza. Para confirmar, envie o sinal pelo link: https://www.asaas.com/i/xxxxxxxxxxxx',
+        'Reservei um horário para 20/09 às 14h com Camila Souza. Esse horário só fica garantido depois do pagamento do sinal — envie pelo link: https://www.asaas.com/i/xxxxxxxxxxxx',
     },
   },
   {
