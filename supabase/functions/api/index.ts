@@ -461,7 +461,13 @@ async function criarAgendamento(req: Request, admin: SupabaseClient) {
   if (typeof data_hora_inicio !== "string" || !data_hora_inicio) {
     return erroResposta("Informe data_hora_inicio.");
   }
-  const formaPagamentoSinal: "pix" | "cartao" = forma_pagamento === "cartao" ? "cartao" : "pix";
+  // Antes assumia "pix" silenciosamente quando forma_pagamento vinha ausente — isso deixava
+  // passar chamadas prematuras do agente de IA (perguntava Pix/cartão e já criava com Pix na
+  // mesma resposta, sem esperar a cliente responder). Agora exige um valor explícito.
+  if (forma_pagamento !== "pix" && forma_pagamento !== "cartao") {
+    return erroResposta("Informe forma_pagamento (pix ou cartao) — pergunte à cliente antes de chamar esta ferramenta.");
+  }
+  const formaPagamentoSinal: "pix" | "cartao" = forma_pagamento;
 
   const { data: servico } = await admin
     .from("servicos")
@@ -523,7 +529,10 @@ async function criarAgendamento(req: Request, admin: SupabaseClient) {
   if (erroAgendamento || !agendamento) {
     const mensagemErro = erroAgendamento?.message ?? "";
     if (mensagemErro.includes("Conflito de horário")) {
-      return erroResposta("Esse horário já está ocupado. Escolha outro horário disponível.", 409);
+      return erroResposta(
+        "Esse horário já está ocupado. Se você mesma já tentou agendar esse horário para essa cliente há pouco, use CONSULTAR AGENDAMENTOS DO CLIENTE para conferir — pode já existir uma reserva dela nesse horário, e você só precisa reenviar o link de pagamento dela em vez de tentar criar de novo. Caso contrário, escolha outro horário disponível.",
+        409,
+      );
     }
     return erroResposta("Não foi possível criar o agendamento: " + mensagemErro, 500);
   }
@@ -532,7 +541,14 @@ async function criarAgendamento(req: Request, admin: SupabaseClient) {
     acao: "api_criar_agendamento",
     tabela: "agendamentos",
     idRegistro: agendamento.id,
-    dadosNovos: { id_cliente: idCliente, id_profissional, id_servico, data_hora_inicio: inicio.toISOString() },
+    dadosNovos: {
+      id_cliente: idCliente,
+      id_profissional,
+      id_servico,
+      data_hora_inicio: inicio.toISOString(),
+      forma_pagamento: formaPagamentoSinal,
+      cpf_informado: typeof cpf_cnpj === "string" && cpf_cnpj.trim().length > 0,
+    },
   });
 
   const sinal = await gerarSinalAgendamento(admin, {
@@ -586,7 +602,7 @@ async function consultarAgendamentosCliente(url: URL, admin: SupabaseClient) {
 
   const { data, error } = await admin
     .from("agendamentos")
-    .select("id, data_hora_inicio, status, profissionais(nome), servicos(nome)")
+    .select("id, data_hora_inicio, status, profissionais(nome), servicos(nome), pagamentos(status, link_pagamento)")
     .eq("id_cliente", cliente.id)
     .neq("status", "cancelado")
     .order("data_hora_inicio", { ascending: true });
@@ -600,13 +616,17 @@ async function consultarAgendamentosCliente(url: URL, admin: SupabaseClient) {
       status: string;
       profissionais: { nome: string } | null;
       servicos: { nome: string } | null;
+      pagamentos: { status: string; link_pagamento: string | null }[] | null;
     };
+    const pagamentoPendente = (registro.pagamentos ?? []).find((p) => p.status === "pendente");
     return {
       id: registro.id,
       data_hora_inicio: registro.data_hora_inicio,
       status: registro.status,
       profissional: registro.profissionais?.nome ?? null,
       servico: registro.servicos?.nome ?? null,
+      pagamento_pendente: Boolean(pagamentoPendente),
+      link_pagamento: pagamentoPendente?.link_pagamento ?? null,
     };
   });
 

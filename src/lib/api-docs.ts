@@ -94,7 +94,7 @@ export const ENDPOINTS: EndpointDoc[] = [
     caminho: '/agendamentos',
     titulo: 'Criar agendamento',
     descricao:
-      'Busca ou cria o cliente pelo WhatsApp (nome_cliente é obrigatório se ele ainda não existir), calcula o término a partir da duração do serviço e cria o agendamento. Se o horário já estiver ocupado, retorna erro sem criar o registro. Também gera o sinal no Asaas (Pix ou cartão, conforme forma_pagamento) e retorna o link de pagamento — o Asaas exige cpf_cnpj do cliente para gerar a cobrança; sem ele, o agendamento é criado normalmente mas sem link (a mensagem explica o motivo). Envie o campo mensagem direto ao cliente: já vem pronto em pt-BR e inclui o link quando disponível.',
+      'Busca ou cria o cliente pelo WhatsApp (nome_cliente é obrigatório se ele ainda não existir), calcula o término a partir da duração do serviço e cria o agendamento. Se o horário já estiver ocupado, retorna erro sem criar o registro. forma_pagamento é obrigatório (pix ou cartao, exatamente) — a chamada é rejeitada sem criar nada se vier ausente ou diferente disso, para evitar que o agente assuma Pix por padrão antes da cliente responder. Também gera o sinal no Asaas e retorna o link de pagamento — o Asaas exige cpf_cnpj do cliente para gerar a cobrança; sem ele, o agendamento é criado normalmente mas sem link (a mensagem explica o motivo). Envie o campo mensagem direto ao cliente: já vem pronto em pt-BR e inclui o link quando disponível.',
     corpoExemplo: {
       whatsapp: '5511987654321',
       nome_cliente: 'Maria Silva',
@@ -118,7 +118,7 @@ export const ENDPOINTS: EndpointDoc[] = [
     caminho: '/agendamentos',
     titulo: 'Consultar agendamentos do cliente',
     descricao:
-      'Retorna os agendamentos não cancelados de um cliente pelo WhatsApp, com profissional e serviço. Use para localizar o agendamento_id antes de remarcar ou cancelar.',
+      'Retorna os agendamentos não cancelados de um cliente pelo WhatsApp, com profissional, serviço e status do pagamento do sinal. Use para localizar o agendamento_id antes de remarcar ou cancelar, e também para reenviar o link de pagamento sem tentar criar um agendamento duplicado quando já existe um pendente.',
     parametrosQuery: [{ nome: 'whatsapp', obrigatorio: true, descricao: 'WhatsApp do cliente' }],
     respostaExemplo: {
       sucesso: true,
@@ -129,6 +129,8 @@ export const ENDPOINTS: EndpointDoc[] = [
           status: 'agendado',
           profissional: 'Camila Souza',
           servico: 'Alongamento em Gel',
+          pagamento_pendente: true,
+          link_pagamento: 'https://www.asaas.com/i/xxxxxxxxxxxx',
         },
       ],
     },
